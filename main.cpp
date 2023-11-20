@@ -8,11 +8,12 @@
 const TGAColor white = TGAColor(255, 255, 255, 255);
 const TGAColor red = TGAColor(255, 0, 0, 255);
 const TGAColor green = TGAColor(0, 255, 0, 255);
+const TGAColor blue = TGAColor(0, 0, 255, 255);
 
 Model *model = NULL;
 
 const int width = 800;
-const int height = 800;
+const int height = 600;
 
 Vec3f barycentric(Vec2i *pts, Vec2i P)
 {
@@ -37,14 +38,13 @@ void line(Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color)
     }
     if (x0 > x1)
     {
-        std::swap(x0, x1);
-        std::swap(y0, y1);
+        std::swap(t1, t2);
     }
 
     for (int x = x0; x <= x1; x++)
     {
         float t = (x - x0) / (float)(x1 - x0);
-        int y = y0 * (1. - t) + y1 * t;
+        int y = y0 * (1. - t) + y1 * t + .5;
         if (steep)
         {
             image.set(y, x, color);
@@ -82,45 +82,49 @@ void triangle(Vec2i *pts, TGAImage &image, TGAColor color)
     }
 }
 
+void rasterize(Vec2i p0, Vec2i p1, TGAImage &image, TGAColor color, int ybuffer[])
+{
+    if (p0.x > p1.x)
+    {
+        std::swap(p0, p1);
+    }
+    for (int x = p0.x; x <= p1.x; x++)
+    {
+        float t = (x - p0.x) / (float)(p1.x - p0.x);
+        int y = p0.y * (1. - t) + p1.y * t;
+        if (ybuffer[x] < y)
+        {
+            ybuffer[x] = y;
+            image.set(x, 0, color);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
-    if (2 == argc)
-    {
-        model = new Model(argv[1]);
-    }
-    else
-    {
-        model = new Model("obj/african_head.obj");
-    }
 
     TGAImage image(width, height, TGAImage::RGB);
 
-    // Vec2i pts[3] = {Vec2i(10, 10), Vec2i(100, 30), Vec2i(190, 160)};
-    // triangle(pts, image, red);
-    Vec3f light_dir(0, 0, -1); // 定义光向
-
-    for (int i = 0; i < model->nfaces(); i++)
-    {
-        std::vector<int> face = model->face(i);
-        Vec2i screen_coords[3];
-        Vec3f world_coords[3];
-        for (int j = 0; j < 3; j++)
-        {
-            Vec3f v = model->vert(face[j]);
-            screen_coords[j] = Vec2i((v.x + 1.) * width / 2., (v.y + 1.) * height / 2.);
-            world_coords[j] = v;
-        }
-        Vec3f n = (world_coords[2] - world_coords[0]) ^ (world_coords[1] - world_coords[0]);
-        n.normalize();
-        float intensity = n * light_dir;
-        if (intensity > 0)
-        {
-            triangle(screen_coords, image, TGAColor(intensity * 255, intensity * 255, intensity * 255, 255));
-        }
-    }
+    line(Vec2i(20, 34), Vec2i(744, 400), image, red);
+    line(Vec2i(120, 434), Vec2i(444, 400), image, green);
+    line(Vec2i(330, 463), Vec2i(594, 200), image, blue);
+    line(Vec2i(10, 10), Vec2i(790, 10), image, white);
 
     image.flip_vertically(); // i want to have the origin at the left bottom corner of the image
     image.write_tga_file("output.tga");
+
+    TGAImage render(width, 16, TGAImage::RGB);
+    int ybuffer[width];
+    for (int i = 0; i < width; i++)
+    {
+        ybuffer[i] = std::numeric_limits<int>::min();
+    }
+    rasterize(Vec2i(20, 34), Vec2i(744, 400), render, red, ybuffer);
+    rasterize(Vec2i(120, 434), Vec2i(444, 400), render, green, ybuffer);
+    rasterize(Vec2i(330, 463), Vec2i(594, 200), render, blue, ybuffer);
+
+    render.flip_vertically(); // i want to have the origin at the left bottom corner of the image
+    render.write_tga_file("render.tga");
 
     return 0;
 }
