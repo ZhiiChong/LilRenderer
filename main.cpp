@@ -12,8 +12,10 @@ const TGAColor blue = TGAColor(0, 0, 255, 255);
 
 Model *model = NULL;
 
-const int WIDTH = 1024;
-const int HEIGHT = 1024;
+const int OUTPUT_WIDTH = 800;
+const int OUTPUT_HEIGHT = 800;
+const int TEXTURE_WIDTH = 1024;
+const int TEXTURE_HEIGHT = 1024;
 
 Vec3f barycentric(Vec3f *pts, Vec3f P)
 {
@@ -56,7 +58,28 @@ void line(Vec2i t1, Vec2i t2, TGAImage &image, TGAColor color)
     }
 }
 
-void triangle(Vec3f *pts, float *zbuffer, Vec2f *uv_coords, float intensity, TGAImage &image, TGAImage texture)
+void rasterize(Vec2i p0, Vec2i p1, TGAImage &image, TGAColor color, int ybuffer[]) {
+    if (p0.x > p1.x)
+    {
+        std::swap(p0, p1);
+    }
+    for (int x = p0.x; x <= p1.x; x++)
+    {
+        float t = (x - p0.x) / (float)(p1.x - p0.x);
+        int y = p0.y * (1. - t) + p1.y * t;
+        if (ybuffer[x] < y)
+        {
+            ybuffer[x] = y;
+            image.set(x, 0, color);
+        }
+    }
+}
+
+Vec3f world2screen(Vec3f v) {
+    return Vec3f(int((v.x + 1.) * OUTPUT_WIDTH / 2. + .5), int((v.y + 1.) * OUTPUT_HEIGHT / 2. + .5), v.z);
+}
+
+void triangle(Vec3f *pts, float *zbuffer, Vec3f *uv_coords, Vec3f *vn_coords, Vec3f light_dir, TGAImage &image, TGAImage &texture)
 {
     Vec2f bboxmin(std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
     Vec2f bboxmax(-std::numeric_limits<float>::max(), -std::numeric_limits<float>::max());
@@ -81,10 +104,14 @@ void triangle(Vec3f *pts, float *zbuffer, Vec2f *uv_coords, float intensity, TGA
             for (int i = 0; i < 3; i++) {
                 P.z += pts[i][2] * bc_screen[i];
             }
-            if (zbuffer[int(P.x + P.y * WIDTH)] < P.z) {
-                zbuffer[int(P.x + P.y * WIDTH)] = P.z;
-                Vec2f uv = uv_coords[0] * bc_screen[0] + uv_coords[1] * bc_screen[1] + uv_coords[2] * bc_screen[2];
+            if (zbuffer[int(P.x + P.y * OUTPUT_WIDTH)] < P.z) {
+                zbuffer[int(P.x + P.y * OUTPUT_WIDTH)] = P.z;
+                Vec3f uv = uv_coords[0] * bc_screen[0] + uv_coords[1] * bc_screen[1] + uv_coords[2] * bc_screen[2];
                 TGAColor color = texture.get(uv[0] * texture.get_width(), uv[1] * texture.get_height());
+                Vec3f vn = vn_coords[0] * bc_screen[0] + vn_coords[1] * bc_screen[1] + vn_coords[2] * bc_screen[2];
+                // float intensity = vn[0] * light_dir[0] + vn[1] * light_dir[1] + vn[2] * light_dir[2];
+                float intensity = vn * light_dir;
+                std::cerr << "intensity: " << intensity << std::endl;
                 color.r = color.r * intensity;
                 color.g = color.g * intensity;
                 color.b = color.b * intensity;
@@ -94,27 +121,6 @@ void triangle(Vec3f *pts, float *zbuffer, Vec2f *uv_coords, float intensity, TGA
     }
 }
 
-void rasterize(Vec2i p0, Vec2i p1, TGAImage &image, TGAColor color, int ybuffer[]) {
-    if (p0.x > p1.x)
-    {
-        std::swap(p0, p1);
-    }
-    for (int x = p0.x; x <= p1.x; x++)
-    {
-        float t = (x - p0.x) / (float)(p1.x - p0.x);
-        int y = p0.y * (1. - t) + p1.y * t;
-        if (ybuffer[x] < y)
-        {
-            ybuffer[x] = y;
-            image.set(x, 0, color);
-        }
-    }
-}
-
-Vec3f world2screen(Vec3f v) {
-    return Vec3f(int((v.x + 1.) * WIDTH / 2. + .5), int((v.y + 1.) * HEIGHT / 2. + .5), v.z);
-}
-
 int main(int argc, char **argv) {
     if (2 == argc) {
         model = new Model(argv[1]);
@@ -122,28 +128,30 @@ int main(int argc, char **argv) {
         model = new Model("obj/african_head/african_head.obj");
     }
 
-    float *zbuffer = new float[WIDTH * HEIGHT];
-    for (int i = WIDTH * HEIGHT; i--; zbuffer[i] = -std::numeric_limits<float>::max());
-    TGAImage image(WIDTH, HEIGHT, TGAImage::RGB);
-    TGAImage texture(WIDTH, HEIGHT, TGAImage::RGB);
+    float *zbuffer = new float[OUTPUT_WIDTH * OUTPUT_HEIGHT];
+    for (int i = OUTPUT_WIDTH * OUTPUT_HEIGHT; i--; zbuffer[i] = -std::numeric_limits<float>::max());
+    TGAImage image(OUTPUT_WIDTH, OUTPUT_HEIGHT, TGAImage::RGB);
+    TGAImage texture(TEXTURE_WIDTH, TEXTURE_HEIGHT, TGAImage::RGB);
     texture.read_tga_file("obj/african_head/african_head_diffuse.tga");
-    Vec3f light_dir(0, 0, -1);
+    Vec3f light_dir(0, 0, 1);
     for (int i = 0; i < model->nfaces(); i++) {
         std::vector<int> face = model->face(i);
         Vec3f pts[3], world_coords[3];
-        Vec2f uv_coords[3];
+        Vec3f uv_coords[3];
+        Vec3f vn_coords[3];
         for (int j = 0; j < 3; j++) {
-            Vec3f v = model->vert(face[i]);
+            Vec3f v = model->vert(face[j * 3]);
             world_coords[j] = v;
             pts[j] = world2screen(v);
-            uv_coords[j] = model->uv_vert((i - 1) * 3 + j);
+            Vec3f origin_uv = model->uv_vert(face[j * 3 + 1]);
+            uv_coords[j] = Vec3f(origin_uv[0], 1.f - origin_uv[1], origin_uv[2]);
+            vn_coords[j] = model->vn_vert(face[j * 3 + 2]);
+            // std::cout << "uv " << idx << ": " << uv_coords[j] << std::endl;
         }
-        Vec3f n = cross((world_coords[2] - world_coords[0]), (world_coords[1] - world_coords[0]));
-        n.normalize();
-        float intensity = n * light_dir;
+        // Vec3f n = cross((world_coords[2] - world_coords[0]), (world_coords[1] - world_coords[0]));
         // TGAColor random = TGAColor(rand() % 255 * intensity, rand() % 255 * intensity, rand() % 255 * intensity, 255);
         // TGAColor white = TGAColor(255 * intensity, 255 * intensity, 255 * intensity, 255);
-        triangle(pts, zbuffer, uv_coords, intensity, image, texture);
+        triangle(pts, zbuffer, uv_coords, vn_coords, light_dir, image, texture);
     }
 
     image.flip_vertically();

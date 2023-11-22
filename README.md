@@ -1,2 +1,2 @@
-# TinyRenderer
-Practice of a tiny renderer
+# LilRenderer
+Practice of a little renderer
