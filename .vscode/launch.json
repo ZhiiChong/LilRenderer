@@ -6,8 +6,8 @@
       "type": "lldb",
       "request": "launch",
       "args": [],
-      "cwd": "/Users/zhichong/Desktop/Backup/TinyRenderer",
-      "program": "/Users/zhichong/Desktop/Backup/TinyRenderer/build/Debug/outDebug"
+      "cwd": "/Users/zhichong/Desktop/Backup/LilRenderer",
+      "program": "/Users/zhichong/Desktop/Backup/LilRenderer/build/Debug/outDebug"
     }
   ]
 }
